@@ -9,9 +9,7 @@
 """Write a checking function here."""
 from subprocess import Popen, PIPE
 import argparse
-import urllib.request
 import time 
-import sys
 import primer3
 
 Primer3_global_args = {
