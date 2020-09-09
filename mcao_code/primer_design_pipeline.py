@@ -20,6 +20,7 @@ try: # Can expand in version 1.1
     import urllib.request
     import time 
     import sys
+    import re
     import primer3
 except:
     ImportError("Please check the pre-installed package for running this pipeline.") 
@@ -44,8 +45,7 @@ Primer3_global_args = {
     'PRIMER_MAX_SELF_ANY' : 8.00,
     'PRIMER_MAX_SELF_END' : 3.00,
     'PRIMER_MAX_END_STABILITY' : 9.0,
-    'PRIMER_PRODUCT_SIZE_RANGE' : [[150,250],[100,300],[301,400],[401,500],\
-        [501,600],[601,700],[701,850],[851,1000]], #???
+    'PRIMER_PRODUCT_SIZE_RANGE' : [[300,350]], 
     'PRIMER_TM_FORMULA' : 1,    # SantaLucia 1988
     'PRIMER_SALT_CORRECTIONS' : 1,   # SantaLucia 1988
     'PRIMER_NUM_RETURN' : 5,
@@ -81,8 +81,8 @@ def retrieving_seq_ucsc(index,ref,amp_max): # (1)How to deal with the minimum am
     global start_pos, end_pos
     chromosome = index[0]
     ori_start_pos = index[1]
-    start_pos = max(1, int(ori_start_pos) - amp_max)
-    end_pos = int(ori_start_pos) + 30 + amp_max
+    start_pos = max(1, int(ori_start_pos) - amp_max) 
+    end_pos = int(ori_start_pos) + 30 + amp_max 
     try:
         process = Popen(args = ['twoBitToFa',
                                 'http://hgdownload.cse.ucsc.edu/gbdb/{}/{}.2bit'.format(ref, ref),
@@ -116,24 +116,29 @@ def primer_design(ID,Templete):
     except:
         IndexError("Your primer list couldn't be generated.")
 
-def in_silico_prc(ref,fprimer,rprimer,_chr):
-    # Using BLAST or other packages is not recommended because user may need to download the genome before quering.
-    # https://genome.ucsc.edu/cgi-bin/hgPcr?org=Human&db=hg38&wp_target=genome&wp_f=CGGTCCACTTCGCTATCTCC&wp_r=GCGTGCTAATGGTGGAAACC&Submit=submit&wp_size=4000&wp_perfect=15&wp_good=15&boolshad.wp_flipReverse=0
+def in_silico_prc(ref,fprimer,rprimer,_chr,grna):
+
     url = r"https://genome.ucsc.edu/cgi-bin/hgPcr?org=Human&db=" + ref + \
         "&wp_target=genome&wp_f=" + fprimer + "&wp_r=" + rprimer + \
         "&Submit=submit&wp_size=4000&wp_perfect=15&wp_good=15&boolshad.wp_flipReverse=0"
+
     try: # Consider other error types in version 1.1
         with urllib.request.urlopen(urllib.request.Request(url)) as f:
             content = str(f.read())
-            pcr_pos = content[content.find("position=" + _chr):content.find("&hgPcrResult")].split(':')[1].split('-')
-
-            #### NEED to determine the conditions to judge the primers
-            if int(pcr_pos[0]) > start_pos and int(pcr_pos[1]) < end_pos:
-                print("This pair of primers are good!")
-                print("Your Forward Primer:",fprimer,"\nYour Reverse Primer:",rprimer) 
-            else: 
-                print("Primers are not good.")
-
+            try:
+                pcr_pos = content[content.find("position=" + _chr):content.find("&hgPcrResult")].split(':')[1].split('-')
+            except:
+                print("Primers are not good, multiple hits in genome.")    
+            if 'pcr_pos' in locals():
+                if int(pcr_pos[0]) > start_pos and int(pcr_pos[1]) < end_pos:
+                    product = content[re.search(fprimer,content).end()+1:content.find("</PRE>")].replace('\\n','').lower()
+                    if grna.lower().strip() in product:
+                        print("This pair of primers is good!")
+                        print("Your Forward Primer:",fprimer,"\nYour Reverse Primer:",rprimer)
+                    else:
+                        print("Primers are not good, gRNA is not contained in your product.")
+                else: 
+                    print("Primers are not good, beyond correct amplicon region.")            
     except urllib.error.URLError as err:
         print(err.reason)
 
@@ -151,6 +156,7 @@ def main():
 
         # Primer design
         print("Designing primers...")
+        Primer3_global_args['PRIMER_PRODUCT_SIZE_RANGE'] = [[int(x) for x in args.product_size_range.split(',')]]
         primers = primer_design("PRIM{}".format(i),genome_seq)
         print("Primers design was completed.")
         
@@ -158,7 +164,7 @@ def main():
         print("Evaluating your primers using in silico pcr...")
         for j in range(len(primers)):
             print("Primers {}:".format(j+1))
-            in_silico_prc(args.ref,primers[j][0],primers[j][1],index[i][0])
+            in_silico_prc(args.ref,primers[j][0],primers[j][1],index[i][0],index[i][2])
         
         # __list.append([genome_seq,primers])
     
@@ -174,6 +180,7 @@ if __name__ == "__main__":
     parser.add_argument('-o', '--output', help="output analysis result")
     parser.add_argument('--min', default=280, type=int, help="Minimum optimal amplicon size")
     parser.add_argument('--max', default=320, type=int, help="Maximum optimal amplicon size")
+    parser.add_argument('--product_size_range',default='300,350',help="Your primer product size range, default is 300-350")
     # parser.add_argument('--thread', default=1, help="Run the pipeline with multiple threads") # Will consider in version 1.2, also the v mode
     args = parser.parse_args()
 
