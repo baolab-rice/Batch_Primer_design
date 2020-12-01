@@ -45,7 +45,7 @@ Primer3_global_args = {
     'PRIMER_MAX_SELF_ANY' : 8.00,
     'PRIMER_MAX_SELF_END' : 3.00,
     'PRIMER_MAX_END_STABILITY' : 9.0,
-    'PRIMER_PRODUCT_SIZE_RANGE' : [[300,350]], 
+    'PRIMER_PRODUCT_SIZE_RANGE' : [[500,600]], 
     'PRIMER_TM_FORMULA' : 1,    # SantaLucia 1988
     'PRIMER_SALT_CORRECTIONS' : 1,   # SantaLucia 1988
     'PRIMER_NUM_RETURN' : 5,
@@ -61,10 +61,13 @@ Primer3_global_args = {
     'PRIMER_SEQUENCING_LEAD' : 50,
     'PRIMER_SEQUENCING_ACCURACY' : 20,
     'PRIMER_SEQUENCING_SPACING' : 500,
-    'PRIMER_SEQUENCING_INTERVAL' : 250
+    'PRIMER_SEQUENCING_INTERVAL' : 250,
+
     # didn't find fix the __ prime end of the primer
     # didn't find left/right/internal oligo acronym
     # didn't find some other check boxes
+
+    'PRIMER_NUM_RETURN' : 10,
 }
 
 def readfile(filename): # A format-checking function will be added in version 1.1
@@ -105,22 +108,26 @@ def primer_design(ID,Templete):
         'SEQUENCE_ID':ID,
         'SEQUENCE_TEMPLATE':Templete,
     }
+    primers_raw = primer3.bindings.designPrimers(Primer3_seq_args,Primer3_global_args)
+    primers = []
+    count = 0
     try:
-        primers_raw = primer3.bindings.designPrimers(Primer3_seq_args,Primer3_global_args)
-        primers = [
-                    [primers_raw['PRIMER_LEFT_0_SEQUENCE'],primers_raw['PRIMER_RIGHT_0_SEQUENCE']],
-                    [primers_raw['PRIMER_LEFT_1_SEQUENCE'],primers_raw['PRIMER_RIGHT_1_SEQUENCE']],
-                    [primers_raw['PRIMER_LEFT_2_SEQUENCE'],primers_raw['PRIMER_RIGHT_2_SEQUENCE']],
-                ]
-        return primers
+        while True:
+            primers.append([primers_raw['PRIMER_LEFT_{}_SEQUENCE'.format(count)],
+            primers_raw['PRIMER_RIGHT_{}_SEQUENCE'.format(count)]])
+            count += 1
     except:
-        IndexError("Your primer list couldn't be generated.")
+        pass
+    return primers
 
-def in_silico_prc(ref,fprimer,rprimer,_chr,grna):
+def in_silico_prc(ref,fprimer,rprimer,_chr,guideseq):
 
     url = r"https://genome.ucsc.edu/cgi-bin/hgPcr?org=Human&db=" + ref + \
         "&wp_target=genome&wp_f=" + fprimer + "&wp_r=" + rprimer + \
         "&Submit=submit&wp_size=4000&wp_perfect=15&wp_good=15&boolshad.wp_flipReverse=0"
+    
+    fprimer = fprimer.upper()
+    rprimer = rprimer.upper()
 
     try: # Consider other error types in version 1.1
         with urllib.request.urlopen(urllib.request.Request(url)) as f:
@@ -128,22 +135,28 @@ def in_silico_prc(ref,fprimer,rprimer,_chr,grna):
             try:
                 pcr_pos = content[content.find("position=" + _chr):content.find("&hgPcrResult")].split(':')[1].split('-')
             except:
-                print("Primers are not good, multiple hits in genome.")    
-            if 'pcr_pos' in locals():
-                if int(pcr_pos[0]) > start_pos and int(pcr_pos[1]) < end_pos:
-                    product = content[re.search(fprimer,content).end()+1:content.find("</PRE>")].replace('\\n','').lower()
-                    if grna.lower().strip() in product:
-                        print("This pair of primers is good!")
-                        print("Your Forward Primer:",fprimer,"\nYour Reverse Primer:",rprimer)
-                    else:
-                        print("Primers are not good, gRNA is not contained in your product.")
-                else: 
-                    print("Primers are not good, beyond correct amplicon region.")            
+                print("Primers are not good, multiple hits in genome.")  
+                print("Original Forward Primer:",fprimer,"\nOriginal Reverse Primer:",rprimer) 
+            try: 
+                if 'pcr_pos' in locals():
+                    if int(pcr_pos[0]) > start_pos and int(pcr_pos[1]) < end_pos:
+                        product = content[re.search(fprimer,content).end()+1:content.find("</PRE>")].replace('\\n','').lower()
+                        if guideseq.lower().strip() in product[100:-100]:
+                            print("This pair of primers is good!")
+                            print("Your Forward Primer:",fprimer,"\nYour Reverse Primer:",rprimer)
+                        else:
+                            print("Primers are not good, guideseq is not contained in your product.")
+                            print("Original Forward Primer:",fprimer,"\nOriginal Reverse Primer:",rprimer)
+                    else: 
+                        print("Primers are not good, beyond correct amplicon region.") 
+                        print("Original Forward Primer:",fprimer,"\nOriginal Reverse Primer:",rprimer) 
+            except:
+                pass          
     except urllib.error.URLError as err:
         print(err.reason)
 
 def main():
-    print("Welcome to primer design pipeline, this is version 1.0")
+    print("Welcome to primer design pipeline, this is version 1.1")
     # Read CSV file    
     index = readfile(args.input)
 
